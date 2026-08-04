@@ -1,23 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsArray, IsDateString, IsEmail, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { IsArray, IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
 import { Public } from '../auth/public.decorator';
 import { DomainService } from './domain.service';
-
-class SisterDto {
-  @IsOptional() @IsUUID() organizationId?: string;
-  @IsString() @MaxLength(50) memberNumber!: string;
-  @IsString() @MaxLength(160) religiousName!: string;
-  @IsString() @MaxLength(160) legalName!: string;
-  @IsOptional() @IsString() birthPlace?: string;
-  @IsOptional() @IsDateString() birthDate?: string;
-  @IsOptional() @IsDateString() joinDate?: string;
-  @IsOptional() @IsIn(['ACTIVE', 'IN_FORMATION', 'EXCLAUSTRATED', 'LEFT', 'DECEASED']) status?: string;
-  @IsOptional() @IsString() phone?: string;
-  @IsOptional() @IsEmail() email?: string;
-}
 
 class AssignmentDto {
   @IsUUID() sisterId!: string;
@@ -76,35 +63,6 @@ export class DashboardController {
   }
 }
 
-@Controller('sisters')
-export class SisterController {
-  constructor(private readonly domain: DomainService) {}
-  @Get() async list(@CurrentUser() user: AuthUser, @Query('search') search = '', @Query('status') status = '') {
-    const scope = this.domain.scope(user, 's');
-    return (await this.domain.db.query(`SELECT s.*, o.name organization_name FROM sisters s JOIN organizations o ON o.id=s.organization_id
-      WHERE ${scope.sql} AND s.deleted_at IS NULL AND ($${scope.params.length + 1}='' OR s.religious_name ILIKE '%'||$${scope.params.length + 1}||'%' OR s.member_number ILIKE '%'||$${scope.params.length + 1}||'%')
-      AND ($${scope.params.length + 2}='' OR s.status::text=$${scope.params.length + 2}) ORDER BY s.religious_name LIMIT 250`, [...scope.params, search, status])).rows;
-  }
-  @Get(':id') async get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    const scope = this.domain.scope(user, 's');
-    const result = await this.domain.db.query(`SELECT s.*, o.name organization_name FROM sisters s JOIN organizations o ON o.id=s.organization_id WHERE s.id=$${scope.params.length + 1} AND ${scope.sql} AND s.deleted_at IS NULL`, [...scope.params, id]);
-    const sister = await this.domain.ensureFound(result.rows);
-    const assignments = await this.domain.db.query('SELECT * FROM assignments WHERE sister_id=$1 ORDER BY start_date DESC', [id]);
-    return { ...sister, assignments: assignments.rows };
-  }
-  @Roles('SUPER_ADMIN','PIMPINAN','SEKRETARIS','UNIT_ADMIN') @Post() async create(@CurrentUser() user: AuthUser, @Body() dto: SisterDto) {
-    const org = this.domain.organization(user, dto.organizationId);
-    return (await this.domain.db.query(`INSERT INTO sisters(organization_id,member_number,religious_name,legal_name,birth_place,birth_date,join_date,status,phone,email)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`, [org,dto.memberNumber,dto.religiousName,dto.legalName,dto.birthPlace??null,dto.birthDate??null,dto.joinDate??null,dto.status??'ACTIVE',dto.phone??null,dto.email??null])).rows[0];
-  }
-  @Roles('SUPER_ADMIN','PIMPINAN','SEKRETARIS','UNIT_ADMIN') @Patch(':id') async update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: SisterDto) {
-    const scope=this.domain.scope(user); const org=this.domain.organization(user,dto.organizationId);
-    const result=await this.domain.db.query(`UPDATE sisters SET organization_id=$1,member_number=$2,religious_name=$3,legal_name=$4,birth_place=$5,birth_date=$6,join_date=$7,status=$8,phone=$9,email=$10
-      WHERE id=$${scope.params.length+11} AND ${scope.sql} AND deleted_at IS NULL RETURNING *`,[org,dto.memberNumber,dto.religiousName,dto.legalName,dto.birthPlace??null,dto.birthDate??null,dto.joinDate??null,dto.status??'ACTIVE',dto.phone??null,dto.email??null,...scope.params,id]);
-    return this.domain.ensureFound(result.rows);
-  }
-}
-
 @Controller('assignments')
 export class AssignmentController {
   constructor(private readonly domain: DomainService) {}
@@ -144,7 +102,7 @@ export class GenericModuleController {
     if(module==='formasi'){const s=this.domain.scope(user,'si');const r=await this.domain.db.query(`SELECT fr.id,si.religious_name anggota,fr.stage tahap,fr.institution institusi,fr.start_date mulai,fr.end_date selesai,fr.result hasil FROM formation_records fr JOIN sisters si ON si.id=fr.sister_id WHERE ${s.sql} ORDER BY fr.start_date DESC`,s.params);return{columns:['anggota','tahap','institusi','mulai','selesai','hasil'],rows:r.rows};}
     if(module==='karya'){const orgs=await this.domain.db.query(`SELECT code kode,name nama,city kota,is_active aktif FROM organizations WHERE type='WORK_UNIT' AND deleted_at IS NULL ORDER BY name`);return{columns:['kode','nama','kota','aktif'],rows:orgs.rows};}
     if(module==='dokumen'){const s=this.domain.scope(user,'d');const r=await this.domain.db.query(`SELECT d.id,d.title judul,d.category kategori,d.file_name berkas,d.visibility akses,d.created_at dibuat FROM documents d WHERE ${s.sql} AND deleted_at IS NULL ORDER BY created_at DESC`,s.params);return{columns:['judul','kategori','berkas','akses','dibuat'],rows:r.rows};}
-    if(module==='workflow'){const s=this.domain.scope(user,'w');const r=await this.domain.db.query(`SELECT w.id,w.title judul,w.type jenis,w.status,w.due_at tenggat,u.full_name pemohon FROM workflow_cases w JOIN users u ON u.id=w.requested_by WHERE ${s.sql} ORDER BY created_at DESC`,s.params);return{columns:['judul','jenis','status','tenggat','pemohon'],rows:r.rows};}
+    if(module==='workflow'){const s=this.domain.scope(user,'w');const r=await this.domain.db.query(`SELECT w.id,w.title judul,w.type jenis,w.status,w.due_at tenggat,u.full_name pemohon FROM workflow_cases w JOIN users u ON u.id=w.requested_by WHERE ${s.sql} ORDER BY w.created_at DESC`,s.params);return{columns:['judul','jenis','status','tenggat','pemohon'],rows:r.rows};}
     if(module==='kalender'){const s=this.domain.scope(user,'si');const r=await this.domain.db.query(`SELECT si.id,si.religious_name kegiatan,si.birth_date tanggal,'ULANG TAHUN' jenis FROM sisters si WHERE ${s.sql} AND si.birth_date IS NOT NULL AND si.deleted_at IS NULL UNION ALL SELECT c.id,c.claim_number,c.due_date,'BATAS KLAIM' FROM insurance_claims c WHERE ${s.sql.replaceAll('si.','c.')} AND c.due_date IS NOT NULL ORDER BY tanggal`,s.params);return{columns:['kegiatan','tanggal','jenis'],rows:r.rows};}
     if(module==='memorial'){const s=this.domain.scope(user,'si');const r=await this.domain.db.query(`SELECT m.id,si.religious_name anggota,m.death_date wafat,m.death_place tempat_wafat,m.burial_place pemakaman,m.remembrance_date peringatan FROM memorials m JOIN sisters si ON si.id=m.sister_id WHERE ${s.sql} ORDER BY m.death_date DESC`,s.params);return{columns:['anggota','wafat','tempat_wafat','pemakaman','peringatan'],rows:r.rows};}
     if(module==='laporan'){const s=this.domain.scope(user);const r=await this.domain.db.query(`SELECT (SELECT count(*) FROM sisters WHERE ${s.sql} AND deleted_at IS NULL) anggota,(SELECT count(*) FROM insurance_claims WHERE ${s.sql}) klaim,(SELECT count(*) FROM assignments WHERE ${s.sql}) penugasan,(SELECT count(*) FROM documents WHERE ${s.sql} AND deleted_at IS NULL) dokumen`,s.params);return{columns:['anggota','klaim','penugasan','dokumen'],rows:r.rows};}

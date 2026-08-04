@@ -7,7 +7,9 @@ async function main() {
   if (!connectionString) throw new Error('DATABASE_URL belum diatur.');
   const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@simkongregasi.local';
   const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+  const encryptionKey = process.env.DATA_ENCRYPTION_KEY ?? process.env.JWT_SECRET;
   if (!adminPassword || adminPassword.length < 12) throw new Error('SEED_ADMIN_PASSWORD minimal 12 karakter.');
+  if (!encryptionKey) throw new Error('DATA_ENCRYPTION_KEY belum diatur.');
   const client = new Client({ connectionString });
   await client.connect();
   await client.query('BEGIN');
@@ -57,10 +59,28 @@ async function main() {
       ['K-0003','Sr. Clara Kasih','Clara Kasih','1999-01-17','IN_FORMATION']
     ];
     for (const [number,religious,legal,birth,status] of sisters) {
-      await client.query(`INSERT INTO sisters(organization_id,member_number,religious_name,legal_name,birth_date,join_date,status)
-        VALUES($1,$2,$3,$4,$5,'2010-07-01',$6::member_status) ON CONFLICT(member_number) DO NOTHING`, [orgId,number,religious,legal,birth,status]);
+      const sister = await client.query(`INSERT INTO sisters(organization_id,member_number,religious_name,legal_name,birth_date,join_date,status,phone,email,address,verification_status,verified_by,verified_at)
+        VALUES($1,$2,$3::varchar,$4,$5,'2010-07-01',$6::member_status,'081200000001',trim(both '.' from regexp_replace(lower($3::text),'[^a-z0-9]+','.','g'))||'@example.local','Jl. Pelayanan No. 1','VERIFIED',$7,now())
+        ON CONFLICT(member_number) DO UPDATE SET religious_name=excluded.religious_name,legal_name=excluded.legal_name,phone=excluded.phone,email=excluded.email,address=excluded.address,verification_status='VERIFIED',verified_by=excluded.verified_by,verified_at=now() RETURNING id`, [orgId,number,religious,legal,birth,status,adminId]);
+      const sisterId=sister.rows[0].id;
+      const canonical=status==='IN_FORMATION'?'TEMPORARY_VOWS':status==='EXCLAUSTRATED'?'EXCLAUSTRATED':status==='LEFT'?'LEFT':'PERPETUAL_VOWS';
+      const dimensions=[['LIFE',status==='DECEASED'?'DECEASED':'LIVING',null],['CANONICAL',canonical,null],['MINISTRY',status==='ACTIVE'?'ACTIVE':'NOT_ACTIVE',null],['RESIDENCE','RESIDENT',orgId]];
+      for(const [dimension,code,residenceOrg] of dimensions) await client.query(`INSERT INTO sister_status_periods(sister_id,dimension,status_code,organization_id,effective_from,reason_code,reason_detail,recorded_by,verified_by,verified_at)
+        SELECT $1,$2::varchar,$3::varchar,$4,'2010-07-01','INITIAL_REGISTRATION','Data contoh awal',$5,$5,now() WHERE NOT EXISTS(SELECT 1 FROM sister_status_periods WHERE sister_id=$1 AND dimension=$2::varchar)`,[sisterId,dimension,code,residenceOrg,adminId]);
     }
     const first = await client.query(`SELECT id FROM sisters WHERE member_number='K-0001'`);
+    await client.query(`INSERT INTO sister_family_members(sister_id,relationship,full_name,phone,is_alive,is_emergency_contact,created_by)
+      SELECT $1,'Saudara','Theresia Anugerah','081299900001',true,true,$2 WHERE NOT EXISTS(SELECT 1 FROM sister_family_members WHERE sister_id=$1)`,[first.rows[0].id,adminId]);
+    await client.query(`INSERT INTO sister_sacramental_records(sister_id,sacrament_type,sacrament_date,parish,diocese,certificate_number,created_by)
+      SELECT $1,'BAPTISM','1978-06-18','Paroki Santa Maria','Keuskupan Agung Jakarta','BAPTIS/1978/112',$2 WHERE NOT EXISTS(SELECT 1 FROM sister_sacramental_records WHERE sister_id=$1)`,[first.rows[0].id,adminId]);
+    await client.query(`INSERT INTO sister_vow_records(sister_id,vow_stage,start_date,place,witness,decree_number,created_by)
+      SELECT $1,'PERPETUAL','2006-08-15','Jakarta','Pemimpin Provinsi','KAUL/2006/018',$2 WHERE NOT EXISTS(SELECT 1 FROM sister_vow_records WHERE sister_id=$1)`,[first.rows[0].id,adminId]);
+    await client.query(`INSERT INTO sister_education_records(sister_id,level,field_of_study,institution,start_year,graduation_year,certificate_number,created_by)
+      SELECT $1,'S1','Pendidikan','Universitas Katolik',1997,2001,'IJZ/2001/778',$2 WHERE NOT EXISTS(SELECT 1 FROM sister_education_records WHERE sister_id=$1)`,[first.rows[0].id,adminId]);
+    await client.query(`INSERT INTO sister_skills(sister_id,skill_type,name,proficiency,issuer,issued_date,created_by)
+      SELECT $1,'LANGUAGE','Bahasa Inggris','Mahir','Lembaga Bahasa','2024-02-10',$2 WHERE NOT EXISTS(SELECT 1 FROM sister_skills WHERE sister_id=$1)`,[first.rows[0].id,adminId]);
+    await client.query(`INSERT INTO sister_legal_documents(sister_id,document_type,identifier_encrypted,identifier_last4,issued_by,issued_date,expires_date,created_by)
+      SELECT $1,'BPJS',pgp_sym_encrypt('0001234567890',$2),'7890','BPJS Kesehatan','2020-01-01',NULL,$3 WHERE NOT EXISTS(SELECT 1 FROM sister_legal_documents WHERE sister_id=$1 AND document_type='BPJS')`,[first.rows[0].id,encryptionKey,adminId]);
     await client.query(`INSERT INTO assignments(sister_id,organization_id,title,location,start_date,notes)
       SELECT $1,$2,'Pimpinan Komunitas','Jakarta','2025-01-01','Data contoh untuk orientasi pengguna'
       WHERE NOT EXISTS(SELECT 1 FROM assignments WHERE sister_id=$1 AND title='Pimpinan Komunitas')`, [first.rows[0].id,orgId]);

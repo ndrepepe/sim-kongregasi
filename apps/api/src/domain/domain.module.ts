@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
-import { AssignmentController, ChronicleController, DashboardController, FinanceController, GenericModuleController, HealthController, SisterController, SystemController } from './core.controllers';
+import { AssignmentController, ChronicleController, DashboardController, FinanceController, GenericModuleController, HealthController, SystemController } from './core.controllers';
 import { DomainService } from './domain.service';
 import { InsuranceController } from './insurance.controller';
 import { OrganizationController } from './organization.controller';
+import { MemberController } from './member.controller';
 
 @Module({
-  controllers: [SystemController, DashboardController, OrganizationController, SisterController, AssignmentController, InsuranceController, HealthController, FinanceController, ChronicleController, GenericModuleController],
+  controllers: [SystemController, DashboardController, OrganizationController, MemberController, AssignmentController, InsuranceController, HealthController, FinanceController, ChronicleController, GenericModuleController],
   providers: [DomainService]
 })
 export class DomainModule {}

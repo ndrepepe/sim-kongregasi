@@ -26,7 +26,7 @@ export class AuditInterceptor implements NestInterceptor {
   private redact(body: unknown) {
     if (!body || typeof body !== 'object') return null;
     const copy = { ...(body as Record<string, unknown>) };
-    for (const key of Object.keys(copy)) if (/password|token|secret/i.test(key)) copy[key] = '[REDACTED]';
+    for (const key of Object.keys(copy)) if (/password|token|secret|identifier|nik|passport|bpjs|policy/i.test(key)) copy[key] = '[REDACTED]';
     return copy;
   }
 }
