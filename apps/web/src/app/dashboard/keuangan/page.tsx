@@ -1,0 +1,7 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { ArrowDownLeft, ArrowUpRight, BookOpen } from 'lucide-react';
+import { api, rupiah } from '@/lib/api';
+import { PageHead } from '@/components/ui';
+type Summary={total_debit:string;total_credit:string;journals:number};
+export default function Finance(){const[data,setData]=useState<Summary|null>(null);const[error,setError]=useState('');useEffect(()=>{api<Summary>('/finance/summary').then(setData).catch(e=>setError(e.message))},[]);return <><PageHead eyebrow="Akuntabilitas" title="Keuangan" description="Pembukuan berpasangan, persetujuan, dan jejak audit untuk setiap transaksi."/>{error&&<p className="error">{error}</p>}<section className="grid stats" style={{gridTemplateColumns:'repeat(3,minmax(0,1fr))'}}><div className="card stat"><ArrowDownLeft className="icon"/><strong>{rupiah(data?.total_debit??0)}</strong><span>Total debit diposting</span></div><div className="card stat"><ArrowUpRight className="icon"/><strong>{rupiah(data?.total_credit??0)}</strong><span>Total kredit diposting</span></div><div className="card stat"><BookOpen className="icon"/><strong>{data?.journals??'—'}</strong><span>Jurnal diposting</span></div></section><div className="card" style={{marginTop:'1rem'}}><h2>Kontrol pembukuan</h2><p className="muted">Jurnal hanya masuk laporan setelah debit dan kredit seimbang serta disetujui petugas berwenang. Data draft tetap terpisah dari buku besar.</p></div></>}

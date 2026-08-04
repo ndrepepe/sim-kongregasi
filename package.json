@@ -1,0 +1,18 @@
+{
+  "name": "sim-kongregasi",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.20.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @sim-kongregasi/api --filter @sim-kongregasi/web dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "db:migrate": "pnpm --filter @sim-kongregasi/api db:migrate",
+    "db:seed": "pnpm --filter @sim-kongregasi/api db:seed"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
