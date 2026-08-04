@@ -6,15 +6,6 @@ import { Roles } from '../auth/roles.decorator';
 import { Public } from '../auth/public.decorator';
 import { DomainService } from './domain.service';
 
-class OrganizationDto {
-  @IsString() @MaxLength(40) code!: string;
-  @IsString() @MaxLength(160) name!: string;
-  @IsIn(['GENERALATE', 'PROVINCE', 'DELEGATION', 'COMMUNITY', 'WORK_UNIT']) type!: string;
-  @IsOptional() @IsUUID() parentId?: string;
-  @IsOptional() @IsString() address?: string;
-  @IsOptional() @IsString() city?: string;
-}
-
 class SisterDto {
   @IsOptional() @IsUUID() organizationId?: string;
   @IsString() @MaxLength(50) memberNumber!: string;
@@ -82,20 +73,6 @@ export class DashboardController {
     const upcoming = await this.domain.db.query(`SELECT id, religious_name, birth_date FROM sisters WHERE ${scope.sql} AND deleted_at IS NULL AND birth_date IS NOT NULL ORDER BY
       (date_part('doy', birth_date) - date_part('doy', current_date) + 366)::int % 366 LIMIT 5`, scope.params);
     return { ...result.rows[0], upcomingBirthdays: upcoming.rows };
-  }
-}
-
-@Controller('organizations')
-export class OrganizationController {
-  constructor(private readonly domain: DomainService) {}
-  @Get() async list(@CurrentUser() user: AuthUser) {
-    if (user.role === 'SUPER_ADMIN') return (await this.domain.db.query('SELECT * FROM organizations WHERE deleted_at IS NULL ORDER BY name')).rows;
-    return (await this.domain.db.query(`WITH RECURSIVE tree AS (SELECT * FROM organizations WHERE id=$1 UNION ALL SELECT o.* FROM organizations o JOIN tree t ON o.parent_id=t.id)
-      SELECT * FROM tree WHERE deleted_at IS NULL ORDER BY name`, [user.organizationId])).rows;
-  }
-  @Roles('SUPER_ADMIN', 'PIMPINAN') @Post() async create(@Body() dto: OrganizationDto) {
-    return (await this.domain.db.query(`INSERT INTO organizations(code,name,type,parent_id,address,city) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [dto.code, dto.name, dto.type, dto.parentId ?? null, dto.address ?? null, dto.city ?? null])).rows[0];
   }
 }
 
