@@ -59,9 +59,10 @@ async function main() {
       ['K-0003','Sr. Clara Kasih','Clara Kasih','1999-01-17','IN_FORMATION']
     ];
     for (const [number,religious,legal,birth,status] of sisters) {
+      const verificationStatus=number==='K-0001'?'VERIFIED':'NEEDS_CORRECTION';
       const sister = await client.query(`INSERT INTO sisters(organization_id,member_number,religious_name,legal_name,birth_date,join_date,status,phone,email,address,verification_status,verified_by,verified_at)
-        VALUES($1,$2,$3::varchar,$4,$5,'2010-07-01',$6::member_status,'081200000001',trim(both '.' from regexp_replace(lower($3::text),'[^a-z0-9]+','.','g'))||'@example.local','Jl. Pelayanan No. 1','VERIFIED',$7,now())
-        ON CONFLICT(member_number) DO UPDATE SET religious_name=excluded.religious_name,legal_name=excluded.legal_name,phone=excluded.phone,email=excluded.email,address=excluded.address,verification_status='VERIFIED',verified_by=excluded.verified_by,verified_at=now() RETURNING id`, [orgId,number,religious,legal,birth,status,adminId]);
+        VALUES($1,$2,$3::varchar,$4,$5,'2010-07-01',$6::member_status,'081200000001',trim(both '.' from regexp_replace(lower($3::text),'[^a-z0-9]+','.','g'))||'@example.local','Jl. Pelayanan No. 1',$8::varchar,CASE WHEN $8::varchar='VERIFIED' THEN $7::uuid ELSE NULL::uuid END,CASE WHEN $8::varchar='VERIFIED' THEN now() ELSE NULL END)
+        ON CONFLICT(member_number) DO UPDATE SET religious_name=excluded.religious_name,legal_name=excluded.legal_name,phone=excluded.phone,email=excluded.email,address=excluded.address,verification_status=excluded.verification_status,verified_by=excluded.verified_by,verified_at=excluded.verified_at RETURNING id`, [orgId,number,religious,legal,birth,status,adminId,verificationStatus]);
       const sisterId=sister.rows[0].id;
       const canonical=status==='IN_FORMATION'?'TEMPORARY_VOWS':status==='EXCLAUSTRATED'?'EXCLAUSTRATED':status==='LEFT'?'LEFT':'PERPETUAL_VOWS';
       const dimensions=[['LIFE',status==='DECEASED'?'DECEASED':'LIVING',null],['CANONICAL',canonical,null],['MINISTRY',status==='ACTIVE'?'ACTIVE':'NOT_ACTIVE',null],['RESIDENCE','RESIDENT',orgId]];
