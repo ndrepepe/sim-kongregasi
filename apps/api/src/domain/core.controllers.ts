@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Post } from '@nestjs/common';
 import { IsArray, IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -68,8 +68,8 @@ export class FinanceController {
 @Controller('chronicles')
 export class ChronicleController {
   constructor(private readonly domain:DomainService){}
-  @Get() async list(@CurrentUser() user:AuthUser){const s=this.domain.scope(user,'c');return(await this.domain.db.query(`SELECT c.*,u.full_name created_by_name FROM chronicles c JOIN users u ON u.id=c.created_by WHERE ${s.sql} ORDER BY event_date DESC LIMIT 200`,s.params)).rows;}
-  @Roles('SUPER_ADMIN','PIMPINAN','SEKRETARIS','ARSIPARIS','UNIT_ADMIN') @Post() async create(@CurrentUser() user:AuthUser,@Body() dto:ChronicleDto){const org=this.domain.organization(user,dto.organizationId);return(await this.domain.db.query(`INSERT INTO chronicles(organization_id,event_date,title,content,location,tags,created_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,[org,dto.eventDate,dto.title,dto.content,dto.location??null,dto.tags??[],user.sub])).rows[0];}
+  @Roles('SUPER_ADMIN','PIMPINAN','DEWAN','SUPERIOR_LOCAL','SEKRETARIS','BENDAHARA','MAGISTRA','KESEHATAN','ARSIPARIS','AUDITOR','SUSTER','UNIT_ADMIN','VIEWER') @Get() async list(@CurrentUser() user:AuthUser){const s=this.domain.scope(user,'c');return(await this.domain.db.query(`SELECT c.*,u.full_name created_by_name FROM chronicles c JOIN users u ON u.id=c.created_by WHERE ${s.sql} ORDER BY event_date DESC LIMIT 200`,s.params)).rows;}
+  @Roles('SUPER_ADMIN','PIMPINAN','SEKRETARIS','ARSIPARIS','UNIT_ADMIN') @Post() async create(@CurrentUser() user:AuthUser,@Body() dto:ChronicleDto){const org=await this.domain.organizationInScope(user,dto.organizationId);return(await this.domain.db.query(`INSERT INTO chronicles(organization_id,event_date,title,content,location,tags,created_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,[org,dto.eventDate,dto.title,dto.content,dto.location??null,dto.tags??[],user.sub])).rows[0];}
 }
 
 @Controller('modules')
@@ -78,6 +78,17 @@ export class GenericModuleController {
   @Get(':module') async list(@CurrentUser() user:AuthUser,@Param('module') module:string){
     const allowed=['formasi','karya','dokumen','workflow','kalender','memorial','laporan','audit'];
     if(!allowed.includes(module)) return {columns:[],rows:[]};
+    const moduleRoles:Record<string,string[]>={
+      formasi:['SUPER_ADMIN','PIMPINAN','MAGISTRA'],
+      karya:['SUPER_ADMIN','PIMPINAN','DEWAN','SUPERIOR_LOCAL','SEKRETARIS','BENDAHARA','MAGISTRA','KESEHATAN','ARSIPARIS','AUDITOR','SUSTER','UNIT_ADMIN','VIEWER'],
+      dokumen:['SUPER_ADMIN','PIMPINAN','SEKRETARIS','ARSIPARIS'],
+      workflow:['SUPER_ADMIN','PIMPINAN','DEWAN','SUPERIOR_LOCAL','SEKRETARIS','BENDAHARA','MAGISTRA','UNIT_ADMIN'],
+      kalender:['SUPER_ADMIN','PIMPINAN','DEWAN','SUPERIOR_LOCAL','SEKRETARIS','BENDAHARA','MAGISTRA','KESEHATAN','ARSIPARIS','AUDITOR','SUSTER','UNIT_ADMIN','VIEWER'],
+      memorial:['SUPER_ADMIN','PIMPINAN','DEWAN','SUPERIOR_LOCAL','SEKRETARIS','BENDAHARA','MAGISTRA','KESEHATAN','ARSIPARIS','AUDITOR','SUSTER','UNIT_ADMIN','VIEWER'],
+      laporan:['SUPER_ADMIN','PIMPINAN','DEWAN','SEKRETARIS','BENDAHARA','AUDITOR'],
+      audit:['SUPER_ADMIN','PIMPINAN','ADMIN_TI','AUDITOR']
+    };
+    if(!moduleRoles[module].includes(user.role)) throw new ForbiddenException('Role Anda tidak memiliki izin untuk modul ini.');
     if(module==='formasi'){const s=this.domain.scope(user,'si');const r=await this.domain.db.query(`SELECT fr.id,si.religious_name anggota,fr.stage tahap,fr.institution institusi,fr.start_date mulai,fr.end_date selesai,fr.result hasil FROM formation_records fr JOIN sisters si ON si.id=fr.sister_id WHERE ${s.sql} ORDER BY fr.start_date DESC`,s.params);return{columns:['anggota','tahap','institusi','mulai','selesai','hasil'],rows:r.rows};}
     if(module==='karya'){const orgs=await this.domain.db.query(`SELECT code kode,name nama,city kota,is_active aktif FROM organizations WHERE type='WORK_UNIT' AND deleted_at IS NULL ORDER BY name`);return{columns:['kode','nama','kota','aktif'],rows:orgs.rows};}
     if(module==='dokumen'){const s=this.domain.scope(user,'d');const r=await this.domain.db.query(`SELECT d.id,d.title judul,d.category kategori,d.file_name berkas,d.visibility akses,d.created_at dibuat FROM documents d WHERE ${s.sql} AND deleted_at IS NULL ORDER BY created_at DESC`,s.params);return{columns:['judul','kategori','berkas','akses','dibuat'],rows:r.rows};}
@@ -85,7 +96,6 @@ export class GenericModuleController {
     if(module==='kalender'){const s=this.domain.scope(user,'si');const r=await this.domain.db.query(`SELECT si.id,si.religious_name kegiatan,si.birth_date tanggal,'ULANG TAHUN' jenis FROM sisters si WHERE ${s.sql} AND si.birth_date IS NOT NULL AND si.deleted_at IS NULL UNION ALL SELECT c.id,c.claim_number,c.due_date,'BATAS KLAIM' FROM insurance_claims c WHERE ${s.sql.replaceAll('si.','c.')} AND c.due_date IS NOT NULL ORDER BY tanggal`,s.params);return{columns:['kegiatan','tanggal','jenis'],rows:r.rows};}
     if(module==='memorial'){const s=this.domain.scope(user,'si');const r=await this.domain.db.query(`SELECT m.id,si.religious_name anggota,m.death_date wafat,m.death_place tempat_wafat,m.burial_place pemakaman,m.remembrance_date peringatan FROM memorials m JOIN sisters si ON si.id=m.sister_id WHERE ${s.sql} ORDER BY m.death_date DESC`,s.params);return{columns:['anggota','wafat','tempat_wafat','pemakaman','peringatan'],rows:r.rows};}
     if(module==='laporan'){const s=this.domain.scope(user);const r=await this.domain.db.query(`SELECT (SELECT count(*) FROM sisters WHERE ${s.sql} AND deleted_at IS NULL) anggota,(SELECT count(*) FROM insurance_claims WHERE ${s.sql}) klaim,(SELECT count(*) FROM assignments WHERE ${s.sql}) penugasan,(SELECT count(*) FROM documents WHERE ${s.sql} AND deleted_at IS NULL) dokumen`,s.params);return{columns:['anggota','klaim','penugasan','dokumen'],rows:r.rows};}
-    if(!['SUPER_ADMIN','PIMPINAN','AUDITOR'].includes(user.role)) return{columns:[],rows:[]};
     const s=this.domain.scope(user,'a');const r=await this.domain.db.query(`SELECT a.id,a.occurred_at waktu,u.full_name pengguna,a.action aksi,a.entity_type modul,a.path,a.ip_address ip FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id WHERE ${s.sql} ORDER BY occurred_at DESC LIMIT 500`,s.params);return{columns:['waktu','pengguna','aksi','modul','path','ip'],rows:r.rows};
   }
 }

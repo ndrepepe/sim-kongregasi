@@ -1,4 +1,4 @@
-export type AppRole = 'SUPER_ADMIN' | 'PIMPINAN' | 'SEKRETARIS' | 'BENDAHARA' | 'KESEHATAN' | 'ARSIPARIS' | 'UNIT_ADMIN' | 'AUDITOR' | 'VIEWER';
+export type AppRole = 'SUPER_ADMIN' | 'PIMPINAN' | 'DEWAN' | 'SUPERIOR_LOCAL' | 'SEKRETARIS' | 'BENDAHARA' | 'MAGISTRA' | 'KESEHATAN' | 'ARSIPARIS' | 'SAFEGUARDING' | 'AUDITOR' | 'ADMIN_TI' | 'SUSTER' | 'UNIT_ADMIN' | 'VIEWER';
 
 export interface AuthUser {
   sub: string;
@@ -6,5 +6,6 @@ export interface AuthUser {
   name: string;
   role: AppRole;
   organizationId: string | null;
+  sisterId: string | null;
   mustChangePassword: boolean;
 }

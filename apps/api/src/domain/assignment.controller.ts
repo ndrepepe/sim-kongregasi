@@ -35,6 +35,7 @@ class AssignmentStatusDto {
 export class AssignmentController {
   constructor(private readonly domain: DomainService) {}
 
+  @Roles('SUPER_ADMIN','PIMPINAN','DEWAN','SUPERIOR_LOCAL','SEKRETARIS','MAGISTRA','KESEHATAN','AUDITOR','SUSTER','UNIT_ADMIN','VIEWER')
   @Get()
   async list(
     @CurrentUser() user: AuthUser,
@@ -63,6 +64,7 @@ export class AssignmentController {
     return rows.rows;
   }
 
+  @Roles('SUPER_ADMIN','PIMPINAN','DEWAN','SUPERIOR_LOCAL','SEKRETARIS','MAGISTRA','KESEHATAN','AUDITOR','SUSTER','UNIT_ADMIN','VIEWER')
   @Get('overview')
   async overview(@CurrentUser() user: AuthUser) {
     const sisterScope = this.domain.scope(user, 's');
@@ -86,9 +88,11 @@ export class AssignmentController {
     return { stats: stats.rows[0], organizations: organizations.rows, sisters: sisters.rows };
   }
 
+  @Roles('SUPER_ADMIN','PIMPINAN','DEWAN','SUPERIOR_LOCAL','SEKRETARIS','MAGISTRA','KESEHATAN','AUDITOR','SUSTER','UNIT_ADMIN','VIEWER')
   @Get(':id')
   async detail(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    const scoped=user.role==='SUPER_ADMIN'?{sql:'a.id=$1',params:[id]}:{sql:'a.id=$1 AND a.organization_id=$2',params:[id,user.organizationId]};
+    const scope=this.domain.scope(user,'a');
+    const scoped={sql:`a.id=$${scope.params.length+1} AND ${scope.sql}`,params:[...scope.params,id]};
     const result = await this.domain.db.query(`SELECT a.*,s.member_number,s.religious_name,o.name organization_name,
       source.name source_organization_name FROM assignments a JOIN sisters s ON s.id=a.sister_id
       JOIN organizations o ON o.id=a.organization_id LEFT JOIN organizations source ON source.id=a.source_organization_id
@@ -101,7 +105,7 @@ export class AssignmentController {
   async create(@CurrentUser() user: AuthUser, @Body() dto: AssignmentDto) {
     if (dto.endDate && dto.endDate < dto.startDate) throw new BadRequestException('Tanggal selesai tidak boleh mendahului tanggal mulai.');
     await this.assertVisibleSister(user,dto.sisterId);
-    const destinationId=this.domain.organization(user,dto.organizationId);
+    const destinationId=await this.domain.organizationInScope(user,dto.organizationId);
     await this.assertNoConflict(dto);
     const result = await this.domain.db.query(`INSERT INTO assignments(
       sister_id,organization_id,source_organization_id,title,location,assignment_type,role_category,

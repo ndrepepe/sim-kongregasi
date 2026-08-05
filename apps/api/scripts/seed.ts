@@ -118,6 +118,35 @@ async function main() {
       SELECT $1,'BPJS',pgp_sym_encrypt('0001234567890',$2),'7890','BPJS Kesehatan','2020-01-01',NULL,$3 WHERE NOT EXISTS(SELECT 1 FROM sister_legal_documents WHERE sister_id=$1 AND document_type='BPJS')`,[first.rows[0].id,encryptionKey,adminId]);
     const sisterRows=await client.query<{id:string;member_number:string}>('SELECT id,member_number FROM sisters WHERE member_number=ANY($1::varchar[])',[sisters.map(s=>s.number)]);
     const sisterIds=Object.fromEntries(sisterRows.rows.map(s=>[s.member_number,s.id])) as Record<string,string>;
+    const demoUsers = [
+      {email:'pimpinan@demo.local',name:'Sr. Maria Anugerah — Pimpinan',role:'PIMPINAN',org:'KONG-001',sister:'K-0001',mfa:true,validTo:null},
+      {email:'dewan@demo.local',name:'Dewan Pimpinan Kongregasi',role:'DEWAN',org:'KONG-001',sister:null,mfa:true,validTo:null},
+      {email:'superior.jakarta@demo.local',name:'Sr. Theresia — Superior Lokal',role:'SUPERIOR_LOCAL',org:'KOM-JKT-01',sister:'K-0002',mfa:false,validTo:'2029-12-31'},
+      {email:'sekretaris@demo.local',name:'Sekretaris Kongregasi',role:'SEKRETARIS',org:'KONG-001',sister:null,mfa:false,validTo:'2029-12-31'},
+      {email:'bendahara@demo.local',name:'Bendahara Yayasan',role:'BENDAHARA',org:'YYS-SM',sister:'K-0007',mfa:true,validTo:'2027-12-31'},
+      {email:'magistra@demo.local',name:'Sr. Clara — Magistra',role:'MAGISTRA',org:'KOM-YOG-01',sister:'K-0003',mfa:false,validTo:'2028-06-30'},
+      {email:'kesehatan@demo.local',name:'Koordinator Pelayanan Kesehatan',role:'KESEHATAN',org:'KOM-SBY-01',sister:'K-0004',mfa:true,validTo:null},
+      {email:'arsiparis@demo.local',name:'Arsiparis Kongregasi',role:'ARSIPARIS',org:'KONG-001',sister:null,mfa:false,validTo:null},
+      {email:'safeguarding@demo.local',name:'Petugas Safeguarding',role:'SAFEGUARDING',org:'KONG-001',sister:null,mfa:true,validTo:'2029-12-31'},
+      {email:'auditor@demo.local',name:'Auditor Internal',role:'AUDITOR',org:'KONG-001',sister:null,mfa:true,validTo:'2026-12-31'},
+      {email:'admin.ti@demo.local',name:'Administrator Teknologi Informasi',role:'ADMIN_TI',org:'KONG-001',sister:null,mfa:true,validTo:null},
+      {email:'suster.felisitas@demo.local',name:'Sr. Felisitas Tangguh',role:'SUSTER',org:'KOM-JKT-01',sister:'K-0010',mfa:false,validTo:null}
+    ] as const;
+    const demoUserIds:string[]=[];
+    for(const account of demoUsers){
+      const user=await client.query<{id:string}>(`INSERT INTO users(organization_id,sister_id,email,full_name,password_hash,role,must_change_password,is_active,access_valid_from,access_valid_to,mfa_required,mfa_enrolled,notes)
+        VALUES($1,$2,$3,$4,$5,$6::user_role,false,true,'2026-01-01',$7,$8,false,'Akun demonstrasi presentasi; bukan untuk produksi')
+        ON CONFLICT(email) DO UPDATE SET organization_id=excluded.organization_id,sister_id=excluded.sister_id,full_name=excluded.full_name,password_hash=excluded.password_hash,role=excluded.role,must_change_password=false,is_active=true,access_valid_from=excluded.access_valid_from,access_valid_to=excluded.access_valid_to,mfa_required=excluded.mfa_required,mfa_enrolled=false,notes=excluded.notes RETURNING id`,
+        [unitIds[account.org],account.sister?sisterIds[account.sister]:null,account.email,account.name,passwordHash,account.role,account.validTo,account.mfa]);
+      demoUserIds.push(user.rows[0].id);
+    }
+    for(const userId of demoUserIds){
+      await client.query(`INSERT INTO user_access_reviews(user_id,reviewed_by,review_date,decision,previous_role,reviewed_role,previous_organization_id,reviewed_organization_id,note,next_review_date)
+        SELECT u.id,$2,current_date,'KEEP',u.role,u.role,u.organization_id,u.organization_id,'Review awal akun demonstrasi','2027-02-05'
+        FROM users u WHERE u.id=$1 AND NOT EXISTS(SELECT 1 FROM user_access_reviews r WHERE r.user_id=u.id AND r.note='Review awal akun demonstrasi')`,[userId,adminId]);
+      await client.query(`UPDATE user_access_reviews r SET previous_role=u.role,reviewed_role=u.role,previous_organization_id=u.organization_id,reviewed_organization_id=u.organization_id,next_review_date='2027-02-05'
+        FROM users u WHERE r.user_id=u.id AND u.id=$1 AND r.note='Review awal akun demonstrasi'`,[userId]);
+    }
     await client.query(`UPDATE assignments SET organization_id=$2,title='Pemimpin Umum',location='Jakarta',start_date='2024-01-01',end_date='2029-12-31',
       decree_number='SK/KSM/001/2024',assignment_type='PRIMARY',role_category='LEADERSHIP',workload_percent=100,workflow_status='ACTIVE',decree_date='2023-12-12',notes='Data demonstrasi fiktif'
       WHERE sister_id=$1 AND title='Pimpinan Komunitas' AND notes='Data contoh untuk orientasi pengguna'`,[sisterIds['K-0001'],unitIds['GEN-JKT']]);

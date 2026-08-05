@@ -48,12 +48,14 @@ class GuideDto {
 export class InsuranceController {
   constructor(private readonly domain: DomainService) {}
 
+  @Roles('SUPER_ADMIN','PIMPINAN','SUPERIOR_LOCAL','SEKRETARIS','KESEHATAN','AUDITOR','UNIT_ADMIN')
   @Get('claims')
   async claims(@CurrentUser() user:AuthUser) {
     const s=this.domain.scope(user,'c');
     return (await this.domain.db.query(`SELECT c.*,s.religious_name,o.name organization_name FROM insurance_claims c JOIN sisters s ON s.id=c.sister_id JOIN organizations o ON o.id=c.organization_id WHERE ${s.sql} ORDER BY c.created_at DESC`,s.params)).rows;
   }
 
+  @Roles('SUPER_ADMIN','PIMPINAN','SUPERIOR_LOCAL','SEKRETARIS','KESEHATAN','AUDITOR','UNIT_ADMIN')
   @Get('claims/:id')
   async claim(@CurrentUser() user:AuthUser,@Param('id') id:string) {
     const s=this.domain.scope(user,'c');
@@ -64,9 +66,9 @@ export class InsuranceController {
     return {...claim,events:events.rows,documents:documents.rows};
   }
 
-  @Roles('SUPER_ADMIN','PIMPINAN','SEKRETARIS','KESEHATAN','UNIT_ADMIN') @Post('claims')
+  @Roles('SUPER_ADMIN','PIMPINAN','SUPERIOR_LOCAL','SEKRETARIS','KESEHATAN','UNIT_ADMIN') @Post('claims')
   async createClaim(@CurrentUser() user:AuthUser,@Body() dto:ClaimDto) {
-    const org=this.domain.organization(user,dto.organizationId);
+    const org=await this.domain.organizationInScope(user,dto.organizationId);
     return this.domain.db.transaction(async(client)=>{
       const sequence=await client.query(`SELECT count(*)::int + 1 seq FROM insurance_claims WHERE date_part('year',created_at)=date_part('year',now())`);
       const number=`KLAIM-${new Date().getFullYear()}-${String(sequence.rows[0].seq).padStart(5,'0')}`;
@@ -76,7 +78,7 @@ export class InsuranceController {
     });
   }
 
-  @Roles('SUPER_ADMIN','PIMPINAN','SEKRETARIS','KESEHATAN','UNIT_ADMIN') @Post('claims/:id/stages')
+  @Roles('SUPER_ADMIN','PIMPINAN','SUPERIOR_LOCAL','SEKRETARIS','KESEHATAN','UNIT_ADMIN') @Post('claims/:id/stages')
   async updateStage(@CurrentUser() user:AuthUser,@Param('id') id:string,@Body() dto:StageDto) {
     const s=this.domain.scope(user);
     return this.domain.db.transaction(async(client)=>{
@@ -89,22 +91,22 @@ export class InsuranceController {
     });
   }
 
-  @Get('guides') async guides(@CurrentUser() user:AuthUser){const s=this.domain.scope(user,'g');return(await this.domain.db.query(`SELECT g.*,u.full_name uploaded_by_name FROM insurance_guides g LEFT JOIN users u ON u.id=g.uploaded_by WHERE (g.organization_id IS NULL OR ${s.sql}) AND g.is_active ORDER BY effective_date DESC`,s.params)).rows;}
+  @Roles('SUPER_ADMIN','PIMPINAN','SUPERIOR_LOCAL','SEKRETARIS','KESEHATAN','AUDITOR','UNIT_ADMIN') @Get('guides') async guides(@CurrentUser() user:AuthUser){const s=this.domain.scope(user,'g');return(await this.domain.db.query(`SELECT g.*,u.full_name uploaded_by_name FROM insurance_guides g LEFT JOIN users u ON u.id=g.uploaded_by WHERE (g.organization_id IS NULL OR ${s.sql}) AND g.is_active ORDER BY effective_date DESC`,s.params)).rows;}
 
   @Roles('SUPER_ADMIN','PIMPINAN','SEKRETARIS','KESEHATAN') @Post('guides') @UseInterceptors(FileInterceptor('file',{limits:{fileSize:10*1024*1024}}))
   async uploadGuide(@CurrentUser() user:AuthUser,@Body() dto:GuideDto,@UploadedFile() file?:Express.Multer.File){
     this.validatePdf(file);
-    const org=user.role==='SUPER_ADMIN'?(dto.organizationId??null):this.domain.organization(user,dto.organizationId);
+    const org=user.role==='SUPER_ADMIN'?(dto.organizationId??null):await this.domain.organizationInScope(user,dto.organizationId);
     const stored=await this.store(file!,'guides');
     return(await this.domain.db.query(`INSERT INTO insurance_guides(organization_id,title,insurer,version,effective_date,file_name,file_path,file_size,checksum_sha256,uploaded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,[org,dto.title,dto.insurer,dto.version,dto.effectiveDate,file!.originalname,stored.path,file!.size,stored.checksum,user.sub])).rows[0];
   }
 
-  @Get('guides/:id/file') async downloadGuide(@CurrentUser() user:AuthUser,@Param('id') id:string,@Res() response:Response){
+  @Roles('SUPER_ADMIN','PIMPINAN','SUPERIOR_LOCAL','SEKRETARIS','KESEHATAN','AUDITOR','UNIT_ADMIN') @Get('guides/:id/file') async downloadGuide(@CurrentUser() user:AuthUser,@Param('id') id:string,@Res() response:Response){
     const s=this.domain.scope(user,'g');const result=await this.domain.db.query(`SELECT * FROM insurance_guides g WHERE g.id=$${s.params.length+1} AND (g.organization_id IS NULL OR ${s.sql})`,[...s.params,id]);
     const guide=await this.domain.ensureFound<any>(result.rows);return response.download(resolve(guide.file_path),guide.file_name);
   }
 
-  @Roles('SUPER_ADMIN','PIMPINAN','SEKRETARIS','KESEHATAN','UNIT_ADMIN') @Post('claims/:id/documents') @UseInterceptors(FileInterceptor('file',{limits:{fileSize:10*1024*1024}}))
+  @Roles('SUPER_ADMIN','PIMPINAN','SUPERIOR_LOCAL','SEKRETARIS','KESEHATAN','UNIT_ADMIN') @Post('claims/:id/documents') @UseInterceptors(FileInterceptor('file',{limits:{fileSize:10*1024*1024}}))
   async uploadClaimDocument(@CurrentUser() user:AuthUser,@Param('id') claimId:string,@Body('title') title:string,@Body('category') category:string,@UploadedFile() file?:Express.Multer.File){
     if(!file?.buffer?.length) throw new BadRequestException('Berkas wajib dipilih.');
     const s=this.domain.scope(user,'c');const claim=await this.domain.db.query(`SELECT c.* FROM insurance_claims c WHERE c.id=$${s.params.length+1} AND ${s.sql}`,[...s.params,claimId]);await this.domain.ensureFound(claim.rows);
