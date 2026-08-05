@@ -139,6 +139,8 @@ export class OrganizationController {
     const organizations = await this.domain.db.query(`SELECT o.*,
       COALESCE(period.parent_id,o.parent_id) effective_parent_id,
       (SELECT count(*)::int FROM sisters s WHERE s.organization_id=o.id AND s.deleted_at IS NULL) member_count,
+      (SELECT count(*)::int FROM assignments a WHERE a.organization_id=o.id AND a.workflow_status='ACTIVE'
+        AND a.start_date <= $2::date AND (a.end_date IS NULL OR a.end_date >= $2::date)) assignment_count,
       (SELECT count(*)::int FROM organizations child WHERE child.deleted_at IS NULL AND EXISTS (
         SELECT 1 FROM organization_structure_periods csp WHERE csp.organization_id=child.id AND csp.parent_id=o.id
           AND csp.effective_from <= $2::date AND (csp.effective_to IS NULL OR csp.effective_to >= $2::date)

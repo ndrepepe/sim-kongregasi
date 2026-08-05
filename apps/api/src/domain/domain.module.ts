@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { AssignmentController, ChronicleController, DashboardController, FinanceController, GenericModuleController, HealthController, SystemController } from './core.controllers';
+import { ChronicleController, DashboardController, FinanceController, GenericModuleController, HealthController, SystemController } from './core.controllers';
+import { AssignmentController } from './assignment.controller';
 import { DomainService } from './domain.service';
 import { InsuranceController } from './insurance.controller';
 import { OrganizationController } from './organization.controller';

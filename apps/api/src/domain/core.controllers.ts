@@ -6,17 +6,6 @@ import { Roles } from '../auth/roles.decorator';
 import { Public } from '../auth/public.decorator';
 import { DomainService } from './domain.service';
 
-class AssignmentDto {
-  @IsUUID() sisterId!: string;
-  @IsOptional() @IsUUID() organizationId?: string;
-  @IsString() title!: string;
-  @IsOptional() @IsString() location?: string;
-  @IsDateString() startDate!: string;
-  @IsOptional() @IsDateString() endDate?: string;
-  @IsOptional() @IsString() decreeNumber?: string;
-  @IsOptional() @IsString() notes?: string;
-}
-
 class HealthVisitDto {
   @IsUUID() sisterId!: string;
   @IsDateString() visitDate!: string;
@@ -53,23 +42,13 @@ export class DashboardController {
     const scope = this.domain.scope(user);
     const result = await this.domain.db.query(`SELECT
       (SELECT count(*)::int FROM sisters WHERE ${scope.sql} AND deleted_at IS NULL AND status = 'ACTIVE') active_sisters,
-      (SELECT count(*)::int FROM assignments WHERE ${scope.sql} AND (end_date IS NULL OR end_date >= current_date)) active_assignments,
+      (SELECT count(*)::int FROM assignments WHERE ${scope.sql} AND workflow_status='ACTIVE' AND start_date<=current_date AND (end_date IS NULL OR end_date >= current_date)) active_assignments,
       (SELECT count(*)::int FROM insurance_claims WHERE ${scope.sql} AND stage NOT IN ('CLOSED','REJECTED')) open_claims,
       (SELECT count(*)::int FROM documents WHERE ${scope.sql} AND deleted_at IS NULL) documents,
       (SELECT count(*)::int FROM workflow_cases WHERE ${scope.sql} AND status IN ('SUBMITTED','IN_REVIEW')) pending_approvals`, scope.params);
     const upcoming = await this.domain.db.query(`SELECT id, religious_name, birth_date FROM sisters WHERE ${scope.sql} AND deleted_at IS NULL AND birth_date IS NOT NULL ORDER BY
       (date_part('doy', birth_date) - date_part('doy', current_date) + 366)::int % 366 LIMIT 5`, scope.params);
     return { ...result.rows[0], upcomingBirthdays: upcoming.rows };
-  }
-}
-
-@Controller('assignments')
-export class AssignmentController {
-  constructor(private readonly domain: DomainService) {}
-  @Get() async list(@CurrentUser() user: AuthUser) { const s=this.domain.scope(user,'a'); return (await this.domain.db.query(`SELECT a.*,s.religious_name,o.name organization_name FROM assignments a JOIN sisters s ON s.id=a.sister_id JOIN organizations o ON o.id=a.organization_id WHERE ${s.sql} ORDER BY a.start_date DESC`,s.params)).rows; }
-  @Roles('SUPER_ADMIN','PIMPINAN','SEKRETARIS','UNIT_ADMIN') @Post() async create(@CurrentUser() user: AuthUser,@Body() dto: AssignmentDto) {
-    const org=this.domain.organization(user,dto.organizationId);
-    return (await this.domain.db.query(`INSERT INTO assignments(sister_id,organization_id,title,location,start_date,end_date,decree_number,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,[dto.sisterId,org,dto.title,dto.location??null,dto.startDate,dto.endDate??null,dto.decreeNumber??null,dto.notes??null])).rows[0];
   }
 }
 

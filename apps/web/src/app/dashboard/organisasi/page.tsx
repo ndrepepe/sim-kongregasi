@@ -10,7 +10,7 @@ type Org = {
   id:string; parent_id:string|null; code:string; name:string; abbreviation?:string; type:string; territory?:string;
   address?:string; city?:string; phone?:string; email?:string; effective_from:string; effective_to?:string;
   charism?:string; history?:string; vision?:string; mission?:string; constitution_summary?:string;
-  capacity?:number; diocese?:string; has_oratory:boolean; notes?:string; is_active:boolean; member_count:number; child_count:number;
+  capacity?:number; diocese?:string; has_oratory:boolean; notes?:string; is_active:boolean; member_count:number; assignment_count:number; child_count:number;
 };
 type Sister = {id:string; religious_name:string; member_number:string; organization_id:string};
 type Office = {id:string;organization_id:string;organization_name:string;position_code:string;position_title:string;category:string;authority_scope?:string;religious_name:string;member_number:string;start_date:string;end_date?:string;decree_number?:string;appointment_basis?:string;is_acting:boolean;active_at_date:boolean};
@@ -42,12 +42,15 @@ export default function Organizations(){
   const [notice,setNotice]=useState('');
   const [busy,setBusy]=useState(false);
   const [canManage,setCanManage]=useState(false);
+  const [queryReady,setQueryReady]=useState(false);
 
   const load=useCallback(async(date=asOf)=>{try{
     const result=await api<Overview>(`/organizations?asOf=${date}`);setData(result);setError('');
     setSelectedId(current=>current&&result.organizations.some(o=>o.id===current)?current:(result.organizations.find(o=>!o.parent_id)?.id??result.organizations[0]?.id??''));
   }catch(e){setError((e as Error).message)}},[asOf]);
-  useEffect(()=>{void load();api<User>('/auth/me').then(u=>setCanManage(['SUPER_ADMIN','PIMPINAN','SEKRETARIS'].includes(u.role))).catch(()=>undefined)},[load]);
+  useEffect(()=>{api<User>('/auth/me').then(u=>setCanManage(['SUPER_ADMIN','PIMPINAN','SEKRETARIS'].includes(u.role))).catch(()=>undefined)},[]);
+  useEffect(()=>{if(queryReady)void load()},[load,queryReady]);
+  useEffect(()=>{const linked=new URLSearchParams(window.location.search).get('organizationId');if(linked)setSelectedId(linked);setQueryReady(true)},[]);
 
   const selected=data.organizations.find(o=>o.id===selectedId)??data.organizations[0];
   const childrenByParent=useMemo(()=>{const map=new Map<string|null,Org[]>();for(const org of data.organizations){const parent=data.organizations.some(o=>o.id===org.parent_id)?org.parent_id:null;map.set(parent,[...(map.get(parent)??[]),org])}for(const children of map.values())children.sort((a,b)=>a.name.localeCompare(b.name,'id'));return map},[data.organizations]);
@@ -71,6 +74,7 @@ export default function Organizations(){
       <div className="field"><label>Struktur berlaku pada</label><input className="input" type="date" value={asOf} onChange={e=>{setAsOf(e.target.value);void load(e.target.value)}}/></div>
     </div>
     <nav className="org-tabs" aria-label="Bagian organisasi">{tabs.map(([key,label,Icon])=><button key={key} className={tab===key?'active':''} onClick={()=>setTab(key)}><Icon size={16}/>{label}</button>)}</nav>
+    {selected&&<aside className="card org-integration-bar"><div><strong>{selected.name}</strong><span>{selected.member_count} anggota berdomisili · {selected.assignment_count} penugasan aktif</span></div><div><a className="btn secondary small" href={`/dashboard/anggota?organizationId=${selected.id}`}><Users size={14}/>Buka data anggota</a><a className="btn secondary small" href={`/dashboard/penugasan?organizationId=${selected.id}`}><ClipboardCheck size={14}/>Buka penugasan</a></div></aside>}
     {!data.organizations.length&&!error?<Empty text="Belum ada struktur organisasi pada tanggal ini."/>:<>
       {tab==='profile'&&selected&&<ProfilePanel org={selected} canManage={canManage} onEdit={()=>setModal('profile')}/>}
       {tab==='structure'&&<section className="org-layout"><aside className="card org-tree"><div className="org-section-head"><div><span className="eyebrow">Bagan hierarki</span><h2>Struktur per {dateId(asOf)}</h2></div></div><div className="org-search"><Search size={15}/><input placeholder="Cari unit atau kode…" value={search} onChange={e=>setSearch(e.target.value)}/></div>{(childrenByParent.get(null)??[]).map(org=><Branch key={org.id} org={org}/>)}</aside>{selected&&<article className="card org-detail"><div className="org-section-head"><div><span className="eyebrow">{typeLabels[selected.type]??selected.type}</span><h2>{selected.name}</h2><p>{selected.code}{selected.territory?` · ${selected.territory}`:''}</p></div><Status value={selected.is_active?'ACTIVE':'NONACTIVE'}/></div><dl className="org-facts"><div><dt>Berlaku sejak</dt><dd>{dateId(selected.effective_from)}</dd></div><div><dt>Unit langsung</dt><dd>{selected.child_count}</dd></div><div><dt>Anggota tercatat</dt><dd>{selected.member_count}</dd></div><div><dt>Lokasi</dt><dd>{[selected.city,selected.diocese].filter(Boolean).join(' · ')||'—'}</dd></div></dl>{selected.address&&<p className="org-address"><MapPin size={15}/>{selected.address}</p>}<div className="org-actions">{canManage&&<><button className="btn secondary small" onClick={()=>setModal('profile')}><Pencil size={14}/>Edit profil</button><button className="btn secondary small" onClick={()=>setModal('move')}><ArrowRightLeft size={14}/>Ubah induk</button></>}<button className="btn secondary small" onClick={()=>{setTab('offices')}}><History size={14}/>Lihat pejabat</button></div><div className="structure-history"><h3>Riwayat struktur</h3>{data.structurePeriods.filter(p=>p.organization_id===selected.id).map(p=><div key={p.id}><span className="history-dot"/><p><strong>{p.change_type.replaceAll('_',' ')}</strong> · induk {p.parent_name||'tidak ada'}<small>{dateId(p.effective_from)} – {dateId(p.effective_to)}{p.decree_number?` · ${p.decree_number}`:''}</small>{p.reason&&<small>{p.reason}</small>}</p></div>)}</div></article>}</section>}
