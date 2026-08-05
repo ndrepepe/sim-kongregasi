@@ -9,7 +9,24 @@ export class DomainService {
   scope(user: AuthUser, alias = ''): { sql: string; params: unknown[] } {
     if (user.role === 'SUPER_ADMIN') return { sql: 'TRUE', params: [] };
     if (!user.organizationId) return { sql: 'FALSE', params: [] };
-    const column = `${alias ? `${alias}.` : ''}organization_id`;
+    const column = alias === 'o' ? 'o.id' : `${alias ? `${alias}.` : ''}organization_id`;
+    if (['PIMPINAN','DEWAN','SUPERIOR_LOCAL','SEKRETARIS','KESEHATAN','ARSIPARIS','AUDITOR','UNIT_ADMIN'].includes(user.role)) {
+      return {
+        sql: `${column} IN (WITH RECURSIVE scoped_organizations AS (
+          SELECT id FROM organizations WHERE id=$1 AND deleted_at IS NULL
+          UNION ALL
+          SELECT child.id FROM organizations child JOIN scoped_organizations parent ON child.parent_id=parent.id WHERE child.deleted_at IS NULL
+        ) SELECT id FROM scoped_organizations)`,
+        params: [user.organizationId]
+      };
+    }
+    return { sql: `${column} = $1`, params: [user.organizationId] };
+  }
+
+  organizationScope(user: AuthUser, alias = 'o'): { sql: string; params: unknown[] } {
+    if (user.role === 'SUPER_ADMIN') return { sql: 'TRUE', params: [] };
+    if (!user.organizationId) return { sql: 'FALSE', params: [] };
+    const column = `${alias ? `${alias}.` : ''}id`;
     if (['PIMPINAN','DEWAN','SUPERIOR_LOCAL','SEKRETARIS','KESEHATAN','ARSIPARIS','AUDITOR','UNIT_ADMIN'].includes(user.role)) {
       return {
         sql: `${column} IN (WITH RECURSIVE scoped_organizations AS (
@@ -33,7 +50,7 @@ export class DomainService {
     const organizationId = requested ?? user.organizationId;
     if (!organizationId) throw new BadRequestException('Pengguna belum ditempatkan pada organisasi.');
     if (user.role === 'SUPER_ADMIN') return organizationId;
-    const scope = this.scope(user, 'o');
+    const scope = this.organizationScope(user, 'o');
     const result = await this.db.query(`SELECT o.id FROM organizations o WHERE o.id=$${scope.params.length + 1} AND ${scope.sql}`,[...scope.params,organizationId]);
     await this.ensureFound(result.rows);
     return organizationId;

@@ -24,8 +24,8 @@ const groups:{label:string;items:NavItem[]}[]=[
   ]},
   {label:'Administrasi',items:[
     {href:'/dashboard/keuangan',label:'Keuangan',Icon:WalletCards,roles:['SUPER_ADMIN','PIMPINAN','BENDAHARA','AUDITOR']},
-    {href:'/dashboard/dokumen',label:'Dokumen & Arsip',Icon:Archive,roles:['SUPER_ADMIN','PIMPINAN','SEKRETARIS','ARSIPARIS']},
-    {href:'/dashboard/workflow',label:'Persetujuan',Icon:FileClock,roles:[...LEADERS,'SUPERIOR_LOCAL','SEKRETARIS','BENDAHARA','MAGISTRA','UNIT_ADMIN']},
+    {href:'/dashboard/dokumen',label:'Dokumen & Arsip',Icon:Archive,roles:['SUPER_ADMIN','PIMPINAN','SEKRETARIS','ARSIPARIS','AUDITOR']},
+    {href:'/dashboard/workflow',label:'Persetujuan',Icon:FileClock,roles:[...LEADERS,'SUPERIOR_LOCAL','SEKRETARIS','BENDAHARA','MAGISTRA','ARSIPARIS','AUDITOR','UNIT_ADMIN']},
     {href:'/dashboard/kalender',label:'Kalender',Icon:CalendarDays,roles:MEMBER_ROLES},
   ]},
   {label:'Memori & Sistem',items:[

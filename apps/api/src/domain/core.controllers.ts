@@ -42,12 +42,6 @@ export class DashboardController {
   }
 }
 
-@Controller('finance')
-export class FinanceController {
-  constructor(private readonly domain:DomainService){}
-  @Roles('SUPER_ADMIN','PIMPINAN','BENDAHARA','AUDITOR') @Get('summary') async summary(@CurrentUser() user:AuthUser){const s=this.domain.scope(user,'je');const r=await this.domain.db.query(`SELECT coalesce(sum(jl.debit),0) total_debit,coalesce(sum(jl.credit),0) total_credit,count(DISTINCT je.id)::int journals FROM journal_entries je LEFT JOIN journal_lines jl ON jl.journal_entry_id=je.id WHERE ${s.sql} AND je.status='POSTED'`,s.params);return r.rows[0];}
-}
-
 @Controller('chronicles')
 export class ChronicleController {
   constructor(private readonly domain:DomainService){}
