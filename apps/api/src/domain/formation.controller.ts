@@ -1,0 +1,54 @@
+import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { IsDateString, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
+import { AuthUser } from '../auth/auth.types';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { Roles } from '../auth/roles.decorator';
+import { DomainService } from './domain.service';
+
+export const FORMATION_STAGES=['ASPIRANT','POSTULANT','NOVICE','JUNIOR','MEDIOR','SENIOR'] as const;
+export const canMoveFormation=(from:string|undefined,to:string,authorizedOverride=false)=>!from||FORMATION_STAGES.indexOf(to as typeof FORMATION_STAGES[number])<=FORMATION_STAGES.indexOf(from as typeof FORMATION_STAGES[number])+1||authorizedOverride;
+
+class StageDto { @IsUUID() sisterId!:string; @IsIn(FORMATION_STAGES) stage!:string; @IsDateString() startDate!:string; @IsOptional() @IsDateString() plannedEndDate?:string; @IsOptional() @IsString() institution?:string; @IsOptional() @IsString() mentor?:string; @IsOptional() @IsString() changeReason?:string; }
+class PlanDto { @IsDateString() periodStart!:string; @IsDateString() periodEnd!:string; @IsString() objectives!:string; @IsString() programs!:string; @IsOptional() @IsString() requiredActivities?:string; }
+class ActivityDto { @IsIn(['COURSE','RETREAT','MINISTRY','WORKSHOP','OTHER']) activityType!:string; @IsString() title!:string; @IsDateString() startDate!:string; @IsOptional() @IsDateString() endDate?:string; @IsOptional() @IsString() facilitator?:string; @IsOptional() @IsString() administrativeResult?:string; @IsOptional() @IsIn(['PLANNED','COMPLETED','CANCELLED']) status?:string; }
+class EvaluationDto { @IsString() periodLabel!:string; @IsString() criteria!:string; @IsString() factualSummary!:string; @IsString() recommendation!:string; @IsOptional() @IsIn(['CONTINUE','EXTEND','ADVANCE','TRANSFER','STOP']) decision?:string; @IsDateString() evaluatedAt!:string; }
+class DecisionDto { @IsIn(['CONTINUE','EXTEND','ADVANCE','TRANSFER','STOP']) decision!:string; @IsOptional() @IsIn(FORMATION_STAGES) toStage?:string; @IsDateString() decisionDate!:string; @IsString() authorityName!:string; @IsOptional() @IsString() documentNumber?:string; @IsString() reason!:string; }
+
+const FORMATION_ROLES=['SUPER_ADMIN','PIMPINAN','MAGISTRA'] as const;
+@Roles(...FORMATION_ROLES)
+@Controller('formation')
+export class FormationController {
+  constructor(private readonly domain:DomainService){}
+  private async sister(user:AuthUser,id:string){const scope=this.domain.scope(user,'s');return this.domain.ensureFound<any>((await this.domain.db.query(`SELECT s.* FROM sisters s WHERE s.id=$${scope.params.length+1} AND s.deleted_at IS NULL AND ${scope.sql}`,[...scope.params,id])).rows)}
+  private async record(user:AuthUser,id:string){const scope=this.domain.scope(user,'s');return this.domain.ensureFound<any>((await this.domain.db.query(`SELECT fr.*,s.member_number,s.religious_name,s.organization_id current_organization_id,o.name organization_name,
+    (SELECT a.title FROM assignments a WHERE a.sister_id=s.id AND a.workflow_status='ACTIVE' AND a.start_date<=current_date AND (a.end_date IS NULL OR a.end_date>=current_date) ORDER BY a.workload_percent DESC LIMIT 1) current_assignment,
+    (SELECT array_agg(sk.name ORDER BY sk.name) FROM sister_skills sk WHERE sk.sister_id=s.id) skills
+    FROM formation_records fr JOIN sisters s ON s.id=fr.sister_id JOIN organizations o ON o.id=s.organization_id
+    WHERE fr.id=$${scope.params.length+1} AND ${scope.sql}`,[...scope.params,id])).rows)}
+
+  @Get('overview') async overview(@CurrentUser() user:AuthUser){const scope=this.domain.scope(user,'s');const result=await this.domain.db.query(`SELECT fr.*,s.member_number,s.religious_name,s.organization_id current_organization_id,o.name organization_name,
+    (SELECT a.title FROM assignments a WHERE a.sister_id=s.id AND a.workflow_status='ACTIVE' AND a.start_date<=current_date AND (a.end_date IS NULL OR a.end_date>=current_date) ORDER BY a.workload_percent DESC LIMIT 1) current_assignment,
+    (SELECT array_agg(sk.name ORDER BY sk.name) FROM sister_skills sk WHERE sk.sister_id=s.id) skills,
+    (SELECT count(*)::int FROM formation_plans p WHERE p.formation_record_id=fr.id) plan_count,
+    (SELECT count(*)::int FROM formation_evaluations e WHERE e.formation_record_id=fr.id) evaluation_count,
+    (SELECT count(*)::int FROM formation_activities a WHERE a.formation_record_id=fr.id) activity_count
+    FROM formation_records fr JOIN sisters s ON s.id=fr.sister_id JOIN organizations o ON o.id=s.organization_id
+    WHERE ${scope.sql} ORDER BY (fr.status='ACTIVE') DESC,fr.start_date DESC`,scope.params);
+    const candidates=await this.domain.db.query(`SELECT s.id,s.member_number,s.religious_name,s.organization_id,o.name organization_name FROM sisters s JOIN organizations o ON o.id=s.organization_id WHERE ${scope.sql} AND s.deleted_at IS NULL AND (s.status='IN_FORMATION' OR EXISTS(SELECT 1 FROM formation_records fr WHERE fr.sister_id=s.id)) ORDER BY s.religious_name`,scope.params);
+    const active=result.rows.filter(x=>x.status==='ACTIVE');return{stats:{formandi:new Set(result.rows.map(x=>x.sister_id)).size,activeStages:active.length,plansDue:result.rows.filter(x=>x.planned_end_date&&String(x.planned_end_date).slice(0,10)<=new Date().toISOString().slice(0,10)&&x.status==='ACTIVE').length,pendingEvaluations:active.filter(x=>!x.evaluation_count).length},records:result.rows,candidates:candidates.rows};}
+
+  @Get(':id') async detail(@CurrentUser() user:AuthUser,@Param('id') id:string){const record=await this.record(user,id);const [plans,evaluations,activities,decisions,education,assignments]=await Promise.all([
+    this.domain.db.query('SELECT p.*,u.full_name responsible_name FROM formation_plans p LEFT JOIN users u ON u.id=p.responsible_user_id WHERE p.formation_record_id=$1 ORDER BY p.period_start DESC',[id]),
+    this.domain.db.query('SELECT e.*,u.full_name evaluator_name FROM formation_evaluations e JOIN users u ON u.id=e.evaluator_id WHERE e.formation_record_id=$1 ORDER BY e.evaluated_at DESC',[id]),
+    this.domain.db.query('SELECT * FROM formation_activities WHERE formation_record_id=$1 ORDER BY start_date DESC',[id]),
+    this.domain.db.query('SELECT d.*,u.full_name decided_by_name FROM formation_decisions d JOIN users u ON u.id=d.decided_by WHERE d.formation_record_id=$1 ORDER BY decision_date DESC',[id]),
+    this.domain.db.query('SELECT * FROM sister_education_records WHERE sister_id=$1 ORDER BY graduation_year DESC NULLS LAST',[record.sister_id]),
+    this.domain.db.query(`SELECT a.*,o.name organization_name FROM assignments a JOIN organizations o ON o.id=a.organization_id WHERE a.sister_id=$1 ORDER BY a.start_date DESC`,[record.sister_id])]);
+    return{...record,plans:plans.rows,evaluations:evaluations.rows,activities:activities.rows,decisions:decisions.rows,education:education.rows,assignments:assignments.rows};}
+
+  @Post('stages') async stage(@CurrentUser() user:AuthUser,@Body() d:StageDto){const sister=await this.sister(user,d.sisterId);const current=(await this.domain.db.query(`SELECT * FROM formation_records WHERE sister_id=$1 AND status='ACTIVE' ORDER BY start_date DESC LIMIT 1`,[d.sisterId])).rows[0];const override=['SUPER_ADMIN','PIMPINAN'].includes(user.role);if(!canMoveFormation(current?.stage,d.stage,override))throw new BadRequestException('Tahap formasi tidak boleh dilompati tanpa keputusan otoritas.');if(current&&d.startDate<=String(current.start_date).slice(0,10))throw new BadRequestException('Tahap baru harus dimulai setelah tahap aktif.');if(override&&current&&FORMATION_STAGES.indexOf(d.stage as any)>FORMATION_STAGES.indexOf(current.stage as any)+1&&!d.changeReason)throw new BadRequestException('Alasan kewenangan wajib diisi untuk lompatan tahap.');return this.domain.db.transaction(async client=>{if(current)await client.query(`UPDATE formation_records SET status='COMPLETED',actual_end_date=$2::date-1,end_date=$2::date-1,result='Dilanjutkan ke tahap berikutnya' WHERE id=$1`,[current.id,d.startDate]);return(await client.query(`INSERT INTO formation_records(sister_id,organization_id,stage,institution,start_date,planned_end_date,mentor,status,change_reason,responsible_user_id,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'ACTIVE',$8,$9,$9) RETURNING *`,[d.sisterId,sister.organization_id,d.stage,d.institution??null,d.startDate,d.plannedEndDate??null,d.mentor??null,d.changeReason??null,user.sub])).rows[0]})}
+  @Post(':id/plans') async plan(@CurrentUser() user:AuthUser,@Param('id') id:string,@Body() d:PlanDto){await this.record(user,id);if(d.periodEnd<d.periodStart)throw new BadRequestException('Akhir rencana tidak boleh mendahului awal.');return(await this.domain.db.query(`INSERT INTO formation_plans(formation_record_id,period_start,period_end,objectives,programs,required_activities,responsible_user_id,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$7) RETURNING *`,[id,d.periodStart,d.periodEnd,d.objectives,d.programs,d.requiredActivities??null,user.sub])).rows[0]}
+  @Post(':id/activities') async activity(@CurrentUser() user:AuthUser,@Param('id') id:string,@Body() d:ActivityDto){await this.record(user,id);if(d.endDate&&d.endDate<d.startDate)throw new BadRequestException('Akhir kegiatan tidak valid.');return(await this.domain.db.query(`INSERT INTO formation_activities(formation_record_id,activity_type,title,start_date,end_date,facilitator,administrative_result,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,[id,d.activityType,d.title,d.startDate,d.endDate??null,d.facilitator??null,d.administrativeResult??null,d.status??'PLANNED',user.sub])).rows[0]}
+  @Post(':id/evaluations') async evaluation(@CurrentUser() user:AuthUser,@Param('id') id:string,@Body() d:EvaluationDto){await this.record(user,id);return(await this.domain.db.query(`INSERT INTO formation_evaluations(formation_record_id,period_label,criteria,factual_summary,recommendation,decision,evaluator_id,evaluated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,[id,d.periodLabel,d.criteria,d.factualSummary,d.recommendation,d.decision??null,user.sub,d.evaluatedAt])).rows[0]}
+  @Roles('SUPER_ADMIN','PIMPINAN') @Post(':id/decisions') async decision(@CurrentUser() user:AuthUser,@Param('id') id:string,@Body() d:DecisionDto){const record=await this.record(user,id);if(d.decision==='ADVANCE'&&!d.toStage)throw new BadRequestException('Tahap tujuan wajib dipilih untuk keputusan lanjut tahap.');if(d.toStage&&!canMoveFormation(record.stage,d.toStage,true))throw new BadRequestException('Tahap tujuan tidak valid.');return(await this.domain.db.query(`INSERT INTO formation_decisions(formation_record_id,decision,from_stage,to_stage,decision_date,authority_name,document_number,reason,decided_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,[id,d.decision,record.stage,d.toStage??null,d.decisionDate,d.authorityName,d.documentNumber??null,d.reason,user.sub])).rows[0]}
+}

@@ -6,16 +6,6 @@ import { Roles } from '../auth/roles.decorator';
 import { Public } from '../auth/public.decorator';
 import { DomainService } from './domain.service';
 
-class HealthVisitDto {
-  @IsUUID() sisterId!: string;
-  @IsDateString() visitDate!: string;
-  @IsString() provider!: string;
-  @IsOptional() @IsString() complaint?: string;
-  @IsOptional() @IsString() diagnosis?: string;
-  @IsOptional() @IsString() treatment?: string;
-  @IsOptional() @IsDateString() followUpDate?: string;
-}
-
 class ChronicleDto {
   @IsOptional() @IsUUID() organizationId?: string;
   @IsDateString() eventDate!: string;
@@ -50,13 +40,6 @@ export class DashboardController {
       (date_part('doy', birth_date) - date_part('doy', current_date) + 366)::int % 366 LIMIT 5`, scope.params);
     return { ...result.rows[0], upcomingBirthdays: upcoming.rows };
   }
-}
-
-@Controller('health')
-export class HealthController {
-  constructor(private readonly domain: DomainService) {}
-  @Roles('SUPER_ADMIN','PIMPINAN','KESEHATAN') @Get('visits') async list(@CurrentUser() user:AuthUser){const s=this.domain.scope(user,'si');return(await this.domain.db.query(`SELECT hv.*,si.religious_name FROM health_visits hv JOIN sisters si ON si.id=hv.sister_id WHERE ${s.sql} ORDER BY visit_date DESC LIMIT 200`,s.params)).rows;}
-  @Roles('SUPER_ADMIN','PIMPINAN','KESEHATAN') @Post('visits') async create(@CurrentUser() user:AuthUser,@Body() dto:HealthVisitDto){return(await this.domain.db.query(`INSERT INTO health_visits(sister_id,visit_date,provider,complaint,diagnosis,treatment,follow_up_date,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,[dto.sisterId,dto.visitDate,dto.provider,dto.complaint??null,dto.diagnosis??null,dto.treatment??null,dto.followUpDate??null,user.sub])).rows[0];}
 }
 
 @Controller('finance')
