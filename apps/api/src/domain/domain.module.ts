@@ -13,9 +13,12 @@ import { FinanceController } from './finance.controller';
 import { ArchiveController } from './archive.controller';
 import { WorkflowController } from './workflow.controller';
 import { CalendarController } from './calendar.controller';
+import { MemoryController } from './memory.controller';
+import { ReportingController } from './reporting.controller';
+import { SystemGovernanceController } from './system-governance.controller';
 
 @Module({
-  controllers: [SystemController, DashboardController, OrganizationController, MemberController, AssignmentController, IdentityController, InsuranceController, HealthController, FormationController, WorkUnitController, FinanceController, ArchiveController, WorkflowController, CalendarController, ChronicleController, GenericModuleController],
+  controllers: [SystemController, DashboardController, OrganizationController, MemberController, AssignmentController, IdentityController, InsuranceController, HealthController, FormationController, WorkUnitController, FinanceController, ArchiveController, WorkflowController, CalendarController, MemoryController, ReportingController, SystemGovernanceController, ChronicleController, GenericModuleController],
   providers: [DomainService]
 })
 export class DomainModule {}

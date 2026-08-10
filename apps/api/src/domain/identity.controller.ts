@@ -51,7 +51,8 @@ export class IdentityController {
   constructor(private readonly domain:DomainService){}
 
   @Roles(...VIEW_ROLES) @Get('users')
-  async users(){
+  async users(@CurrentUser() actor:AuthUser){
+    const globalTechnical=['SUPER_ADMIN','ADMIN_TI'].includes(actor.role);const us=globalTechnical?{sql:'TRUE',params:[]}:this.domain.scope(actor,'u');const os=globalTechnical?{sql:'TRUE',params:[]}:this.domain.organizationScope(actor,'o');const ss=globalTechnical?{sql:'TRUE',params:[]}:this.domain.scope(actor,'s');
     const [users,organizations,sisters,reviews]=await Promise.all([
       this.domain.db.query(`SELECT u.id,u.email,u.full_name,u.role,u.organization_id,o.name organization_name,u.sister_id,s.religious_name sister_name,
         u.is_active,u.must_change_password,u.failed_login_count,u.locked_until,u.last_login_at,u.access_valid_from,u.access_valid_to,
@@ -60,15 +61,15 @@ export class IdentityController {
           WHEN u.access_valid_from>current_date THEN 'SCHEDULED' WHEN u.access_valid_to<current_date THEN 'EXPIRED' ELSE 'ACTIVE' END account_status,
         (SELECT max(review_date) FROM user_access_reviews r WHERE r.user_id=u.id) last_review_date,
         (SELECT max(next_review_date) FROM user_access_reviews r WHERE r.user_id=u.id) next_review_date
-        FROM users u LEFT JOIN organizations o ON o.id=u.organization_id LEFT JOIN sisters s ON s.id=u.sister_id ORDER BY u.full_name`),
-      this.domain.db.query('SELECT id,code,name,type FROM organizations WHERE deleted_at IS NULL AND is_active ORDER BY name'),
-      this.domain.db.query('SELECT id,member_number,religious_name,organization_id FROM sisters WHERE deleted_at IS NULL ORDER BY religious_name'),
+        FROM users u LEFT JOIN organizations o ON o.id=u.organization_id LEFT JOIN sisters s ON s.id=u.sister_id WHERE ${us.sql} ORDER BY u.full_name`,us.params),
+      this.domain.db.query(`SELECT o.id,o.code,o.name,o.type FROM organizations o WHERE ${os.sql} AND o.deleted_at IS NULL AND o.is_active ORDER BY o.name`,os.params),
+      this.domain.db.query(`SELECT s.id,s.member_number,s.religious_name,s.organization_id FROM sisters s WHERE ${ss.sql} AND s.deleted_at IS NULL ORDER BY s.religious_name`,ss.params),
       this.domain.db.query(`SELECT r.*,u.full_name user_name,rv.full_name reviewer_name,o.name reviewed_organization_name
         FROM user_access_reviews r JOIN users u ON u.id=r.user_id JOIN users rv ON rv.id=r.reviewed_by
-        LEFT JOIN organizations o ON o.id=r.reviewed_organization_id ORDER BY r.review_date DESC,r.created_at DESC LIMIT 100`),
+        LEFT JOIN organizations o ON o.id=r.reviewed_organization_id WHERE ${us.sql} ORDER BY r.review_date DESC,r.created_at DESC LIMIT 100`,us.params),
     ]);
     const rows=users.rows;const today=new Date().toISOString().slice(0,10);
-    return {users:rows,organizations:organizations.rows,sisters:sisters.rows,reviews:reviews.rows,stats:{total:rows.length,active:rows.filter(x=>x.account_status==='ACTIVE').length,roles:new Set(rows.filter(x=>x.is_active).map(x=>x.role)).size,mfaPending:rows.filter(x=>x.mfa_required&&!x.mfa_enrolled).length,reviewDue:rows.filter(x=>!x.next_review_date||x.next_review_date<=today).length}};
+    const in30=new Date(Date.now()+30*864e5).toISOString().slice(0,10);return {users:rows,organizations:organizations.rows,sisters:sisters.rows,reviews:reviews.rows,stats:{total:rows.length,active:rows.filter(x=>x.account_status==='ACTIVE').length,roles:new Set(rows.filter(x=>x.is_active).map(x=>x.role)).size,mfaPending:rows.filter(x=>x.mfa_required&&!x.mfa_enrolled).length,reviewDue:rows.filter(x=>!x.next_review_date||x.next_review_date<=today).length,locked:rows.filter(x=>x.account_status==='LOCKED').length,expired:rows.filter(x=>x.account_status==='EXPIRED').length,expiringSoon:rows.filter(x=>x.access_valid_to&&String(x.access_valid_to).slice(0,10)>=today&&String(x.access_valid_to).slice(0,10)<=in30).length,unlinked:rows.filter(x=>x.role==='SUSTER'&&!x.sister_id).length}};
   }
 
   @Roles(...VIEW_ROLES) @Get('roles')
